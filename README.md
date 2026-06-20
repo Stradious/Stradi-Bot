@@ -32,16 +32,19 @@ If a token is ever exposed, reset it immediately in the Discord Developer Portal
 
 The Discord application must have the **Message Content Intent** and **Server Members Intent** enabled in the Discord Developer Portal.
 
-## Host it 24/7
+## Host it 24/7 with Railway
 
-GitHub stores the code but does not keep a Discord bot running. Deploy this repository as a long-running worker/service on a cloud host that supports Docker:
+GitHub stores the code but does not keep a Discord bot running. Railway can run the included Docker container as a long-running service:
 
-1. Connect the public GitHub repository to the host.
-2. Let the host build the included `Dockerfile`.
-3. Add a secret environment variable named `DISCORD_TOKEN` with the real token.
-4. Deploy one instance. Do not run the local copy at the same time.
+1. Open the [Railway dashboard](https://railway.com/dashboard) and create a project from a GitHub repository.
+2. Select `Stradious/Stradi-Bot`.
+3. Open the service's **Variables** section and add `DISCORD_TOKEN` with the real token.
+4. Deploy the service and check its logs for `We are ready to go in`.
+5. Stop the local copy after the cloud copy is online. Only one instance should use the token.
 
-The bot does not need a public web URL or port. It connects outward to Discord.
+`railway.json` tells Railway to build the `Dockerfile`, keep one instance running, and restart the bot automatically. The bot does not need a public web URL or port because it connects outward to Discord.
+
+Railway requires a paid plan after its trial. Review [current Railway pricing](https://railway.com/pricing) before upgrading.
 
 ## Current commands
 
