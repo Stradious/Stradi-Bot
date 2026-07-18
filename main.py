@@ -427,6 +427,17 @@ async def gstart(
 
     await asyncio.sleep(seconds)
     giveaway = await channel.fetch_message(giveaway.id)
+    ended_embed = giveaway.embeds[0].copy() if giveaway.embeds else embed.copy()
+    ended_embed.description = (
+        f"**{prize}**\n\nThis giveaway has ended.\n"
+        f"Ended {discord.utils.format_dt(end_time, 'R')} · **{winners}** winner(s)\n"
+        f"Hosted by {ctx.author.mention}"
+    )
+    try:
+        await giveaway.edit(embed=ended_embed)
+    except discord.HTTPException:
+        logger.exception("Could not mark giveaway %s as ended", giveaway.id)
+
     reaction = discord.utils.get(giveaway.reactions, emoji="🎉")
     entrants = [user async for user in reaction.users() if not user.bot] if reaction else []
     if not entrants:
