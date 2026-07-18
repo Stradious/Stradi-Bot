@@ -58,6 +58,8 @@ Railway requires a paid plan after its trial. Review [current Railway pricing](h
 - `!gstart <time> <winners> <prize>`
 
 Giveaways can be started from the configured start-channel ID or from channels
-listed in `GIVEAWAY_START_CHANNEL_NAMES` (defaults: `staff-cmds,admin-cmds`).
+whose names end with an entry in `GIVEAWAY_START_CHANNEL_NAMES` (defaults:
+`staff-cmds,admin-cmds`). This supports decorated names such as
+`⛔・staff-cmds`.
 
 Counting state is saved to `data/counting.json`, so local restarts no longer erase progress. On Railway, attach persistent storage at `/app/data` if progress must also survive a fresh deployment.

@@ -244,7 +244,7 @@ async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: s
     channel_name = getattr(ctx.channel, "name", "").casefold()
     channel_is_allowed = (
         ctx.channel.id == GIVEAWAY_START_CHANNEL_ID
-        or channel_name in GIVEAWAY_START_CHANNEL_NAMES
+        or any(channel_name.endswith(name) for name in GIVEAWAY_START_CHANNEL_NAMES)
     )
     if not channel_is_allowed:
         await ctx.send("Giveaways can’t be started in this channel.", delete_after=5)
