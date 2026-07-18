@@ -1,303 +1,288 @@
-import discord
-from discord.ext import commands
+"""Stradious: a configurable Discord community bot."""
+from __future__ import annotations
+
+import asyncio
+import json
 import logging
-from dotenv import load_dotenv
 import os
 import random
 import re
-import asyncio
+from datetime import timedelta
+from pathlib import Path
 
-# Load environment variables from .env locally. Cloud hosts inject them directly.
+import discord
+from discord.ext import commands
+from dotenv import load_dotenv
+
 load_dotenv()
-token = os.getenv('DISCORD_TOKEN')
-if not token:
-    raise ValueError("DISCORD_TOKEN environment variable is not set!")
 
-# Send logs to the terminal so cloud-hosting dashboards can display them.
-handler = logging.StreamHandler()
 
-# Intents
+def env_int(name: str, default: int = 0) -> int:
+    value = os.getenv(name)
+    if not value:
+        return default
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer Discord ID") from exc
+
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+PREFIX = os.getenv("COMMAND_PREFIX", "!")
+WELCOME_CHANNEL_ID = env_int("WELCOME_CHANNEL_ID", 1393132051472842802)
+COUNTING_CHANNEL_ID = env_int("COUNTING_CHANNEL_ID", 1393114619777646683)
+GIVEAWAY_CHANNEL_ID = env_int("GIVEAWAY_CHANNEL_ID", 1481864311373565983)
+GIVEAWAY_START_CHANNEL_ID = env_int("GIVEAWAY_START_CHANNEL_ID", 1316295531160539179)
+GIVEAWAY_ROLE_ID = env_int("GIVEAWAY_ROLE_ID", 1393364864331808960)
+MEMBER_ROLE = os.getenv("MEMBER_ROLE", "Clowns")
+SECRET_ROLE = os.getenv("SECRET_ROLE", "Gamer")
+STATE_FILE = Path(os.getenv("STATE_FILE", "data/counting.json"))
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("stradious")
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
+bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
 
-# Bot Setup
-bot = commands.Bot(command_prefix='!', intents=intents)
 
-# Constants
-secret_role = "Gamer"
-WELCOME_CHANNEL_ID = 1393132051472842802
-COINFLIP_CHANNEL_ID = 1393100231494602753
-COUNTING_CHANNEL_ID = 1393114619777646683
-GIVEAWAY_CHANNEL_ID = 1481864311373565983
-GIVEAWAY_START_CHANNEL_ID = 1316295531160539179
-GREEN_CHECK = '✅'
-RED_X = '❌'
-determine_flip = [1, 0]
-counting_state = {}
-role_all = "Clowns"
+def load_state() -> dict:
+    try:
+        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not load counting state")
+        return {}
 
-# Helper: Convert time string (e.g. 30s, 2m) to seconds
-def convert_time_to_seconds(time_str):
-    match = re.match(r"^(\d+)([smhd])$", time_str.lower())
+
+counting_state = load_state()
+
+
+def save_state() -> None:
+    try:
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary = STATE_FILE.with_suffix(".tmp")
+        temporary.write_text(json.dumps(counting_state, indent=2), encoding="utf-8")
+        temporary.replace(STATE_FILE)
+    except OSError:
+        logger.exception("Could not save counting state")
+
+
+def convert_time_to_seconds(value: str) -> int | None:
+    match = re.fullmatch(r"(\d+)([smhd])", value.strip(), re.IGNORECASE)
     if not match:
         return None
-    value, unit = match.groups()
-    value = int(value)
-    return {
-        "s": value,
-        "m": value * 60,
-        "h": value * 3600,
-        "d": value * 86400
-    }.get(unit)
+    amount, unit = match.groups()
+    return int(amount) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[unit.lower()]
 
-# Helper: Add suffix to a number (e.g., 1st, 2nd)
-def get_ordinal(n):
-    if 10 <= n % 100 <= 20:
-        suffix = 'th'
-    else:
-        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
-    return f"{n}{suffix}"
 
-# Event: Bot is ready
+def get_ordinal(number: int) -> str:
+    suffix = "th" if 10 <= number % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(number % 10, "th")
+    return f"{number}{suffix}"
+
+
 @bot.event
-async def on_ready():
-    print(f"We are ready to go in, {bot.user.name}")
+async def on_ready() -> None:
+    logger.info("Ready as %s (%s), serving %s guild(s)", bot.user, bot.user.id, len(bot.guilds))
 
-# Event: Welcome new member
+
 @bot.event
-async def on_member_join(member):
-    guild = member.guild
-    welcome_channel = guild.get_channel(WELCOME_CHANNEL_ID)
-    clown_role = discord.utils.get(guild.roles, name="Clowns")
-
-    if clown_role:
+async def on_member_join(member: discord.Member) -> None:
+    role = discord.utils.get(member.guild.roles, name=MEMBER_ROLE)
+    if role:
         try:
-            await member.add_roles(clown_role)
+            await member.add_roles(role, reason="Default Stradious member role")
         except discord.Forbidden:
-            print(f"❌ Missing permissions to add 'Clown' role to {member.name}")
-        except Exception as e:
-            print(f"❌ Error adding 'Clown' role: {e}")
-
-    if welcome_channel:
-        member_number = len(guild.members)
-        ordinal = get_ordinal(member_number)
-        await welcome_channel.send(
-            f"Hello, {member.name}, welcome to Stradi's Shack. "
-            f"You are the {ordinal} member."
+            logger.warning("Missing permission to add role %s", MEMBER_ROLE)
+    channel = member.guild.get_channel(WELCOME_CHANNEL_ID)
+    if channel:
+        total = member.guild.member_count or len(member.guild.members)
+        await channel.send(
+            f"Welcome to **{member.guild.name}**, {member.mention}! "
+            f"You’re our **{get_ordinal(total)}** member."
         )
 
-# Event: Handle counting and commands
+
 @bot.event
-async def on_message(message):
+async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
-
-    # Counting logic
-    if message.channel.id == COUNTING_CHANNEL_ID:
+    if message.guild and message.channel.id == COUNTING_CHANNEL_ID:
         try:
             number = int(message.content.strip())
         except ValueError:
+            await bot.process_commands(message)
             return
 
-        guild_id = message.guild.id
-        user_id = message.author.id
-
-        if guild_id not in counting_state:
-            counting_state[guild_id] = {
-                'current': 0,
-                'last_user': None,
-                'best': 0
-            }
-
-        state = counting_state[guild_id]
-        expected = state['current'] + 1
-
-        if number != expected:
-            await message.add_reaction(RED_X)
+        state = counting_state.setdefault(
+            str(message.guild.id), {"current": 0, "last_user": None, "best": 0}
+        )
+        expected = state["current"] + 1
+        same_user = state["last_user"] == message.author.id
+        if number != expected or same_user:
+            await message.add_reaction("❌")
+            reason = "double posting" if same_user else f"expected **{expected}**"
             await message.channel.send(
-                f"{message.author.mention} RUINED IT AT **{state['current']}**!! "
-                f"Next number is **{expected}**. **Wrong number.**"
+                f"{message.author.mention} broke the count at **{state['current']}** "
+                f"({reason}). Start again at **1**!"
             )
-            state['current'] = 0
-            state['last_user'] = None
-            return
-
-        if state['last_user'] == user_id:
-            await message.add_reaction(RED_X)
-            await message.channel.send(
-                f"{message.author.mention} RUINED IT AT **{state['current']}**!! "
-                f"**Double posting.**"
-            )
-            state['current'] = 0
-            state['last_user'] = None
-            return
-
-        await message.add_reaction(GREEN_CHECK)
-        state['current'] += 1
-        state['last_user'] = user_id
-        if state['current'] > state['best']:
-            state['best'] = state['current']
-
+            state.update({"current": 0, "last_user": None})
+        else:
+            await message.add_reaction("✅")
+            state.update({"current": number, "last_user": message.author.id})
+            state["best"] = max(state["best"], number)
+        save_state()
     await bot.process_commands(message)
 
-# Event: Deleted message in counting
+
 @bot.event
-async def on_message_delete(message):
-    if message.channel.id != COUNTING_CHANNEL_ID or message.author.bot:
+async def on_command_error(ctx: commands.Context, error: commands.CommandError) -> None:
+    error = getattr(error, "original", error)
+    if isinstance(error, commands.CommandNotFound):
         return
+    if isinstance(error, commands.MissingRequiredArgument):
+        await ctx.send(f"Missing `{error.param.name}`. Try `{PREFIX}help` for usage.")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send(f"I couldn’t understand that value. Try `{PREFIX}help`.")
+    elif isinstance(error, (commands.MissingRole, commands.NoPrivateMessage)):
+        await ctx.send("You don’t have permission to use that command here.")
+    else:
+        logger.error("Command failed: %s", error, exc_info=error)
+        await ctx.send("Something went wrong while running that command.")
 
-    try:
-        deleted_number = int(message.content.strip())
-    except (ValueError, AttributeError):
-        return
 
-    guild_id = message.guild.id
-    state = counting_state.get(guild_id)
-
-    if not state or deleted_number > state['current']:
-        return
-
-    expected = state['current'] + 1
+@bot.command(name="help")
+async def help_command(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="⚠️ A number was deleted",
-        description=(
-            f"{message.author.mention} has deleted their number: **{deleted_number}**\n\n"
-            f"The next number is **{expected}**."
-        ),
-        color=discord.Color.orange()
+        title="Stradious commands",
+        description="Community tools, games, and giveaways.",
+        color=discord.Color.blurple(),
     )
-    await message.channel.send(embed=embed)
-
-# Commands
-
-@bot.command()
-async def hello(ctx):
-    await ctx.send(f"Hello {ctx.author.mention}!")
-
-@bot.command()
-async def assign(ctx):
-    role = discord.utils.find(lambda r: r.name.lower() == secret_role.lower(), ctx.guild.roles)
-    if role:
-        await ctx.author.add_roles(role)
-        await ctx.send(f"{ctx.author.mention} is now assigned to {secret_role}")
-    else:
-        await ctx.send("Role doesn't exist")
-
-@bot.command()
-async def remove(ctx):
-    role = discord.utils.find(lambda r: r.name.lower() == secret_role.lower(), ctx.guild.roles)
-    if role:
-        await ctx.author.remove_roles(role)
-        await ctx.send(f"{ctx.author.mention} has had the {secret_role} removed")
-    else:
-        await ctx.send("Role doesn't exist")
-
-@bot.command()
-async def dm(ctx, *, msg):
-    await ctx.author.send(f"You said: {msg}")
-
-@bot.command()
-async def reply(ctx):
-    await ctx.reply("This is a reply to your message!")
-
-@bot.command()
-async def poll(ctx, *, question):
-    embed = discord.Embed(title="New Poll", description=question)
-    poll_message = await ctx.send(embed=embed)
-    await poll_message.add_reaction("👍")
-    await poll_message.add_reaction("👎")
-
-@bot.command()
-@commands.has_role(secret_role)
-async def secret(ctx):
-    await ctx.send("Welcome to the club!")
-
-@secret.error
-async def secret_error(ctx, error):
-    if isinstance(error, commands.MissingRole):
-        await ctx.send("You do not have permission to do that!")
-
-# Coinflipping logic
-@bot.command()
-async def coinflip(ctx):
-    # if ctx.channel.id != COINFLIP_CHANNEL_ID:
-    #     await ctx.message.delete()
-    #     return
-
-    result = "Heads" if random.choice(determine_flip) == 1 else "Tails"
-    embed = discord.Embed(
-        title="Coinflip",
-        description=f"{ctx.author.mention} Flipped coin, we got **{result}**!"
+    embed.add_field(name=f"{PREFIX}hello", value="Say hello", inline=True)
+    embed.add_field(name=f"{PREFIX}coinflip", value="Flip a coin", inline=True)
+    embed.add_field(name=f"{PREFIX}count", value="Show counting progress", inline=True)
+    embed.add_field(name=f"{PREFIX}poll <question>", value="Create a 👍 / 👎 poll", inline=False)
+    embed.add_field(name=f"{PREFIX}assign / {PREFIX}remove", value=f"Manage the {SECRET_ROLE} role", inline=False)
+    embed.add_field(
+        name=f"{PREFIX}gstart <time> <winners> <prize>",
+        value="Start a giveaway (staff channel only)",
+        inline=False,
     )
     await ctx.send(embed=embed)
 
-# Giveaway logic
+
 @bot.command()
-async def gstart(ctx, time: str, winners: int, *, prize: str):
-    # Silently delete the message if not in the correct channel
-    if ctx.channel.id != GIVEAWAY_START_CHANNEL_ID:
-        await ctx.message.delete()
+async def hello(ctx: commands.Context) -> None:
+    await ctx.send(f"Hello, {ctx.author.mention}! 👋")
+
+
+@bot.command()
+@commands.guild_only()
+async def assign(ctx: commands.Context) -> None:
+    role = discord.utils.get(ctx.guild.roles, name=SECRET_ROLE)
+    if not role:
+        await ctx.send(f"The **{SECRET_ROLE}** role does not exist.")
+        return
+    await ctx.author.add_roles(role, reason="Self-assigned through Stradious")
+    await ctx.send(f"Added **{SECRET_ROLE}** to {ctx.author.mention}.")
+
+
+@bot.command()
+@commands.guild_only()
+async def remove(ctx: commands.Context) -> None:
+    role = discord.utils.get(ctx.guild.roles, name=SECRET_ROLE)
+    if not role:
+        await ctx.send(f"The **{SECRET_ROLE}** role does not exist.")
+        return
+    await ctx.author.remove_roles(role, reason="Self-removed through Stradious")
+    await ctx.send(f"Removed **{SECRET_ROLE}** from {ctx.author.mention}.")
+
+
+@bot.command()
+async def poll(ctx: commands.Context, *, question: str) -> None:
+    embed = discord.Embed(title="📊 New poll", description=question, color=discord.Color.blurple())
+    embed.set_footer(text=f"Started by {ctx.author.display_name}")
+    poll_message = await ctx.send(embed=embed)
+    for emoji in ("👍", "👎"):
+        await poll_message.add_reaction(emoji)
+
+
+@bot.command()
+@commands.guild_only()
+async def count(ctx: commands.Context) -> None:
+    state = counting_state.get(str(ctx.guild.id), {"current": 0, "best": 0})
+    await ctx.send(f"Current count: **{state['current']}** · Server best: **{state['best']}**")
+
+
+@bot.command()
+@commands.has_role(SECRET_ROLE)
+async def secret(ctx: commands.Context) -> None:
+    await ctx.send("Welcome to the club! 🎮")
+
+
+@bot.command()
+async def coinflip(ctx: commands.Context) -> None:
+    result = random.choice(("Heads", "Tails"))
+    embed = discord.Embed(title="🪙 Coin flip", description=f"{ctx.author.mention} flipped **{result}**!")
+    await ctx.send(embed=embed)
+
+
+@bot.command()
+@commands.guild_only()
+async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: str) -> None:
+    if GIVEAWAY_START_CHANNEL_ID and ctx.channel.id != GIVEAWAY_START_CHANNEL_ID:
+        await ctx.send("Giveaways can’t be started in this channel.", delete_after=5)
+        return
+    seconds = convert_time_to_seconds(duration)
+    if not seconds or seconds > 30 * 86400:
+        await ctx.send("Use `30s`, `10m`, `2h`, or `7d` (maximum 30 days).")
+        return
+    if not 1 <= winners <= 20:
+        await ctx.send("Winner count must be between 1 and 20.")
+        return
+    channel = bot.get_channel(GIVEAWAY_CHANNEL_ID)
+    if channel is None:
+        await ctx.send("The giveaway channel is not configured correctly.")
         return
 
-    seconds = convert_time_to_seconds(time)
-    if seconds is None:
-        await ctx.send("❌ Invalid time format. Use `s`, `m`, `h`, or `d` (e.g. 30s, 1m, 2h, 1d).")
-        return
-
+    end_time = discord.utils.utcnow() + timedelta(seconds=seconds)
     embed = discord.Embed(
-        title="🎉 Giveaway Started!",
+        title="🎉 Giveaway",
         description=(
-            f"**Prize:** {prize}\n"
-            f"**Hosted by:** {ctx.author.mention}\n"
-            f"React with 🎉 to enter!\n\n"
-            f"**Duration:** {time}\n"
-            f"**Winners:** {winners}"
+            f"**{prize}**\n\nReact with 🎉 to enter.\n"
+            f"Ends {discord.utils.format_dt(end_time, 'R')} · **{winners}** winner(s)\n"
+            f"Hosted by {ctx.author.mention}"
         ),
-        color=discord.Color.blurple()
+        color=discord.Color.blurple(),
     )
-    embed.set_footer(text="Giveaway ends soon. React now!")
-
-    giveaway_channel = bot.get_channel(GIVEAWAY_CHANNEL_ID)
-    if giveaway_channel is None:
-        return  # Optionally log this internally
-
-    giveaway_message = await giveaway_channel.send(content="<@&1393364864331808960>", embed=embed)
-    await giveaway_message.add_reaction("🎉")
+    mention = f"<@&{GIVEAWAY_ROLE_ID}>" if GIVEAWAY_ROLE_ID else None
+    giveaway = await channel.send(content=mention, embed=embed)
+    await giveaway.add_reaction("🎉")
+    await ctx.send(f"Giveaway started in {channel.mention}.")
 
     await asyncio.sleep(seconds)
-
-    try:
-        giveaway_message = await giveaway_channel.fetch_message(giveaway_message.id)
-    except Exception as e:
-        await giveaway_channel.send("❌ Giveaway ended, but I couldn't fetch the message.")
-        print(f"[Giveaway] Fetch error: {e}")
+    giveaway = await channel.fetch_message(giveaway.id)
+    reaction = discord.utils.get(giveaway.reactions, emoji="🎉")
+    entrants = [user async for user in reaction.users() if not user.bot] if reaction else []
+    if not entrants:
+        await channel.send(f"The giveaway for **{prize}** ended with no entries.")
         return
-
-    reaction = discord.utils.get(giveaway_message.reactions, emoji="🎉")
-    if not reaction:
-        await giveaway_channel.send("❌ No one reacted. Giveaway cancelled.")
-        return
-
-    try:
-        users = [user async for user in reaction.users() if not user.bot]
-    except Exception as e:
-        await giveaway_channel.send("❌ Could not read users from reactions.")
-        print(f"[Giveaway] User fetch error: {e}")
-        return
-
-    if not users:
-        await giveaway_channel.send("❌ No valid users reacted. Giveaway cancelled.")
-        return
-
-    if len(users) < winners:
-        winners = len(users)
-
-    selected = random.sample(users, winners)
-    winner_mentions = ", ".join(user.mention for user in selected)
-
-    await giveaway_channel.send(f"🎉 Congratulations {winner_mentions}! You won **{prize}** 🎁")
+    selected = random.sample(entrants, min(winners, len(entrants)))
+    mentions = ", ".join(user.mention for user in selected)
+    await channel.send(f"🎉 Congratulations {mentions}! You won **{prize}**!")
 
 
-# Run the bot
-bot.run(token, log_handler=handler, log_level=logging.INFO)
+def main() -> None:
+    if not TOKEN:
+        raise RuntimeError("DISCORD_TOKEN is not set. Copy .env.example to .env and add your token.")
+    bot.run(TOKEN, log_handler=None)
+
+
+if __name__ == "__main__":
+    main()

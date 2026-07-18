@@ -1,6 +1,6 @@
-# Stradi Bot
+# Stradious
 
-A Discord community bot for Stradi's Shack. It includes welcome messages and role assignment, counting, polls, coin flips, and giveaways.
+A configurable Discord community app for Stradi's Shack. It includes welcome messages, self-service roles, persistent counting, polls, coin flips, and giveaways.
 
 ## Keep the token private
 
@@ -30,7 +30,7 @@ If a token is ever exposed, reset it immediately in the Discord Developer Portal
    python main.py
    ```
 
-The Discord application must have the **Message Content Intent** and **Server Members Intent** enabled in the Discord Developer Portal.
+The Discord application must have the **Message Content Intent** and **Server Members Intent** enabled in the Discord Developer Portal. Change the optional channel and role settings from `.env.example` when installing Stradious in a different server.
 
 ## Host it 24/7 with Railway
 
@@ -39,7 +39,7 @@ GitHub stores the code but does not keep a Discord bot running. Railway can run 
 1. Open the [Railway dashboard](https://railway.com/dashboard) and create a project from a GitHub repository.
 2. Select `Stradious/Stradi-Bot`.
 3. Open the service's **Variables** section and add `DISCORD_TOKEN` with the real token.
-4. Deploy the service and check its logs for `We are ready to go in`.
+4. Deploy the service and check its logs for `Ready as`.
 5. Stop the local copy after the cloud copy is online. Only one instance should use the token.
 
 `railway.json` tells Railway to build the `Dockerfile`, keep one instance running, and restart the bot automatically. The bot does not need a public web URL or port because it connects outward to Discord.
@@ -49,12 +49,12 @@ Railway requires a paid plan after its trial. Review [current Railway pricing](h
 ## Current commands
 
 - `!hello`
+- `!help`
 - `!assign` and `!remove`
-- `!dm <message>`
-- `!reply`
+- `!count`
 - `!poll <question>`
 - `!secret`
 - `!coinflip`
 - `!gstart <time> <winners> <prize>`
 
-Counting state is stored in memory, so it resets whenever the bot restarts or is redeployed.
+Counting state is saved to `data/counting.json`, so local restarts no longer erase progress. On Railway, attach persistent storage at `/app/data` if progress must also survive a fresh deployment.

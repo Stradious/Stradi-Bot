@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY main.py .
 
 RUN useradd --create-home botuser
+RUN mkdir -p /app/data && chown -R botuser:botuser /app/data
 USER botuser
 
 CMD ["python", "main.py"]

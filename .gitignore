@@ -11,6 +11,7 @@ venv/
 
 # Logs and local editor settings
 *.log
+data/
 .idea/
 .vscode/
 
