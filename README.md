@@ -58,7 +58,9 @@ Railway requires a paid plan after its trial. Review [current Railway pricing](h
 - `!gstart <time> <winners> <prize>`
 
 Giveaways can be started from any server channel and are posted in the
-configured `GIVEAWAY_CHANNEL_ID`. `BOT_NICKNAME` controls the bot's display
-name within each server where it has permission to change its nickname.
+configured `GIVEAWAY_CHANNEL_ID`. The notification role is resolved first by
+`GIVEAWAY_ROLE_ID`, then by `GIVEAWAY_ROLE_NAME`, so a stale role ID does not
+produce an unknown-role mention. `BOT_NICKNAME` controls the bot's display name
+within each server where it has permission to change its nickname.
 
 Counting state is saved to `data/counting.json`, so local restarts no longer erase progress. On Railway, attach persistent storage at `/app/data` if progress must also survive a fresh deployment.

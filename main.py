@@ -33,6 +33,7 @@ WELCOME_CHANNEL_ID = env_int("WELCOME_CHANNEL_ID", 1393132051472842802)
 COUNTING_CHANNEL_ID = env_int("COUNTING_CHANNEL_ID", 1393114619777646683)
 GIVEAWAY_CHANNEL_ID = env_int("GIVEAWAY_CHANNEL_ID", 1481864311373565983)
 GIVEAWAY_ROLE_ID = env_int("GIVEAWAY_ROLE_ID", 1393364864331808960)
+GIVEAWAY_ROLE_NAME = os.getenv("GIVEAWAY_ROLE_NAME", "Giveaways").strip()
 BOT_NICKNAME = os.getenv("BOT_NICKNAME", "Strad's Servant").strip()
 MEMBER_ROLE = os.getenv("MEMBER_ROLE", "Clowns")
 SECRET_ROLE = os.getenv("SECRET_ROLE", "Gamer")
@@ -259,6 +260,33 @@ async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: s
         await ctx.send("The giveaway channel is not configured correctly.")
         return
 
+    giveaway_guild = channel.guild
+    giveaway_role = giveaway_guild.get_role(GIVEAWAY_ROLE_ID)
+    if giveaway_role is None and GIVEAWAY_ROLE_NAME:
+        expected_role_name = GIVEAWAY_ROLE_NAME.casefold()
+        giveaway_role = discord.utils.find(
+            lambda role: role.name.casefold() == expected_role_name
+            or role.name.casefold().endswith(expected_role_name),
+            giveaway_guild.roles,
+        )
+    if giveaway_role is None:
+        await ctx.send(
+            f"I couldn’t find the **{GIVEAWAY_ROLE_NAME or 'Giveaways'}** role. "
+            "Check the role name or configure `GIVEAWAY_ROLE_ID`."
+        )
+        return
+
+    bot_member = giveaway_guild.me
+    can_ping_unmentionable_roles = bool(
+        bot_member and channel.permissions_for(bot_member).mention_everyone
+    )
+    if not giveaway_role.mentionable and not can_ping_unmentionable_roles:
+        await ctx.send(
+            f"I found {giveaway_role.mention}, but Discord won’t let me ping it. "
+            "Make that role mentionable or give me **Mention @everyone, @here, and All Roles**."
+        )
+        return
+
     end_time = discord.utils.utcnow() + timedelta(seconds=seconds)
     embed = discord.Embed(
         title="🎉 Giveaway",
@@ -269,8 +297,11 @@ async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: s
         ),
         color=discord.Color.blurple(),
     )
-    mention = f"<@&{GIVEAWAY_ROLE_ID}>" if GIVEAWAY_ROLE_ID else None
-    giveaway = await channel.send(content=mention, embed=embed)
+    giveaway = await channel.send(
+        content=giveaway_role.mention,
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(roles=[giveaway_role]),
+    )
     await giveaway.add_reaction("🎉")
     await ctx.send(f"Giveaway started in {channel.mention}.")
 
