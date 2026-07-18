@@ -32,13 +32,8 @@ PREFIX = os.getenv("COMMAND_PREFIX", "!")
 WELCOME_CHANNEL_ID = env_int("WELCOME_CHANNEL_ID", 1393132051472842802)
 COUNTING_CHANNEL_ID = env_int("COUNTING_CHANNEL_ID", 1393114619777646683)
 GIVEAWAY_CHANNEL_ID = env_int("GIVEAWAY_CHANNEL_ID", 1481864311373565983)
-GIVEAWAY_START_CHANNEL_ID = env_int("GIVEAWAY_START_CHANNEL_ID", 1316295531160539179)
-GIVEAWAY_START_CHANNEL_NAMES = {
-    name.strip().casefold()
-    for name in os.getenv("GIVEAWAY_START_CHANNEL_NAMES", "staff-cmds,admin-cmds").split(",")
-    if name.strip()
-}
 GIVEAWAY_ROLE_ID = env_int("GIVEAWAY_ROLE_ID", 1393364864331808960)
+BOT_NICKNAME = os.getenv("BOT_NICKNAME", "Strad's Servant").strip()
 MEMBER_ROLE = os.getenv("MEMBER_ROLE", "Clowns")
 SECRET_ROLE = os.getenv("SECRET_ROLE", "Gamer")
 STATE_FILE = Path(os.getenv("STATE_FILE", "data/counting.json"))
@@ -94,6 +89,16 @@ def get_ordinal(number: int) -> str:
 
 @bot.event
 async def on_ready() -> None:
+    if BOT_NICKNAME:
+        for guild in bot.guilds:
+            member = guild.me
+            if member and member.nick != BOT_NICKNAME:
+                try:
+                    await member.edit(nick=BOT_NICKNAME, reason="Configured Stradious bot nickname")
+                except discord.Forbidden:
+                    logger.warning("Missing permission to change nickname in %s", guild.name)
+                except discord.HTTPException:
+                    logger.exception("Could not change nickname in %s", guild.name)
     logger.info("Ready as %s (%s), serving %s guild(s)", bot.user, bot.user.id, len(bot.guilds))
 
 
@@ -165,7 +170,7 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError) 
 @bot.command(name="help")
 async def help_command(ctx: commands.Context) -> None:
     embed = discord.Embed(
-        title="Stradious commands",
+        title=f"{BOT_NICKNAME or 'Stradious'} commands",
         description="Community tools, games, and giveaways.",
         color=discord.Color.blurple(),
     )
@@ -174,9 +179,10 @@ async def help_command(ctx: commands.Context) -> None:
     embed.add_field(name=f"{PREFIX}count", value="Show counting progress", inline=True)
     embed.add_field(name=f"{PREFIX}poll <question>", value="Create a 👍 / 👎 poll", inline=False)
     embed.add_field(name=f"{PREFIX}assign / {PREFIX}remove", value=f"Manage the {SECRET_ROLE} role", inline=False)
+    embed.add_field(name=f"{PREFIX}secret", value=f"Use the secret command with the {SECRET_ROLE} role", inline=False)
     embed.add_field(
         name=f"{PREFIX}gstart <time> <winners> <prize>",
-        value="Start a giveaway (staff channel only)",
+        value="Start a giveaway from any server channel",
         inline=False,
     )
     await ctx.send(embed=embed)
@@ -241,14 +247,6 @@ async def coinflip(ctx: commands.Context) -> None:
 @bot.command()
 @commands.guild_only()
 async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: str) -> None:
-    channel_name = getattr(ctx.channel, "name", "").casefold()
-    channel_is_allowed = (
-        ctx.channel.id == GIVEAWAY_START_CHANNEL_ID
-        or any(channel_name.endswith(name) for name in GIVEAWAY_START_CHANNEL_NAMES)
-    )
-    if not channel_is_allowed:
-        await ctx.send("Giveaways can’t be started in this channel.", delete_after=5)
-        return
     seconds = convert_time_to_seconds(duration)
     if not seconds or seconds > 30 * 86400:
         await ctx.send("Use `30s`, `10m`, `2h`, or `7d` (maximum 30 days).")
