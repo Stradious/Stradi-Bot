@@ -48,6 +48,9 @@ Railway requires a paid plan after its trial. Review [current Railway pricing](h
 
 ## Current commands
 
+Every command works both as a traditional `!command` and as a Discord slash
+command. Type `/` in Discord to open the native searchable command picker.
+
 - `!hello`
 - `!help`
 - `!assign` and `!remove`

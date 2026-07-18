@@ -27,8 +27,19 @@ def env_int(name: str, default: int = 0) -> int:
         raise ValueError(f"{name} must be an integer Discord ID") from exc
 
 
+def env_int_list(name: str, default: str = "") -> tuple[int, ...]:
+    values = os.getenv(name, default)
+    try:
+        return tuple(int(value.strip()) for value in values.split(",") if value.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a comma-separated list of Discord IDs") from exc
+
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("COMMAND_PREFIX", "!")
+COMMAND_GUILD_IDS = env_int_list(
+    "COMMAND_GUILD_IDS", "982318902530949180,1392780437734293615"
+)
 WELCOME_CHANNEL_ID = env_int("WELCOME_CHANNEL_ID", 1393132051472842802)
 COUNTING_CHANNEL_ID = env_int("COUNTING_CHANNEL_ID", 1393114619777646683)
 GIVEAWAY_CHANNEL_ID = env_int("GIVEAWAY_CHANNEL_ID", 1481864311373565983)
@@ -49,6 +60,20 @@ intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
 bot = commands.Bot(command_prefix=PREFIX, intents=intents, help_command=None)
+
+
+@bot.event
+async def setup_hook() -> None:
+    try:
+        global_commands = await bot.tree.sync()
+        logger.info("Synced %s global slash command(s)", len(global_commands))
+        for guild_id in COMMAND_GUILD_IDS:
+            guild = discord.Object(id=guild_id)
+            bot.tree.copy_global_to(guild=guild)
+            guild_commands = await bot.tree.sync(guild=guild)
+            logger.info("Synced %s slash command(s) to guild %s", len(guild_commands), guild_id)
+    except discord.HTTPException:
+        logger.exception("Could not sync slash commands")
 
 
 def load_state() -> dict:
@@ -168,7 +193,7 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError) 
         await ctx.send("Something went wrong while running that command.")
 
 
-@bot.command(name="help")
+@bot.hybrid_command(name="help", description="Show all Strad's Servant commands")
 async def help_command(ctx: commands.Context) -> None:
     embed = discord.Embed(
         title=f"{BOT_NICKNAME or 'Stradious'} commands",
@@ -189,12 +214,12 @@ async def help_command(ctx: commands.Context) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.command()
+@bot.hybrid_command(description="Say hello")
 async def hello(ctx: commands.Context) -> None:
     await ctx.send(f"Hello, {ctx.author.mention}! 👋")
 
 
-@bot.command()
+@bot.hybrid_command(description=f"Give yourself the {SECRET_ROLE} role")
 @commands.guild_only()
 async def assign(ctx: commands.Context) -> None:
     role = discord.utils.get(ctx.guild.roles, name=SECRET_ROLE)
@@ -205,7 +230,7 @@ async def assign(ctx: commands.Context) -> None:
     await ctx.send(f"Added **{SECRET_ROLE}** to {ctx.author.mention}.")
 
 
-@bot.command()
+@bot.hybrid_command(description=f"Remove the {SECRET_ROLE} role from yourself")
 @commands.guild_only()
 async def remove(ctx: commands.Context) -> None:
     role = discord.utils.get(ctx.guild.roles, name=SECRET_ROLE)
@@ -216,7 +241,7 @@ async def remove(ctx: commands.Context) -> None:
     await ctx.send(f"Removed **{SECRET_ROLE}** from {ctx.author.mention}.")
 
 
-@bot.command()
+@bot.hybrid_command(description="Create a thumbs-up or thumbs-down poll")
 async def poll(ctx: commands.Context, *, question: str) -> None:
     embed = discord.Embed(title="📊 New poll", description=question, color=discord.Color.blurple())
     embed.set_footer(text=f"Started by {ctx.author.display_name}")
@@ -225,27 +250,27 @@ async def poll(ctx: commands.Context, *, question: str) -> None:
         await poll_message.add_reaction(emoji)
 
 
-@bot.command()
+@bot.hybrid_command(description="Show the current and best counting totals")
 @commands.guild_only()
 async def count(ctx: commands.Context) -> None:
     state = counting_state.get(str(ctx.guild.id), {"current": 0, "best": 0})
     await ctx.send(f"Current count: **{state['current']}** · Server best: **{state['best']}**")
 
 
-@bot.command()
+@bot.hybrid_command(description=f"Use the secret command with the {SECRET_ROLE} role")
 @commands.has_role(SECRET_ROLE)
 async def secret(ctx: commands.Context) -> None:
     await ctx.send("Welcome to the club! 🎮")
 
 
-@bot.command()
+@bot.hybrid_command(description="Flip a coin")
 async def coinflip(ctx: commands.Context) -> None:
     result = random.choice(("Heads", "Tails"))
     embed = discord.Embed(title="🪙 Coin flip", description=f"{ctx.author.mention} flipped **{result}**!")
     await ctx.send(embed=embed)
 
 
-@bot.command()
+@bot.hybrid_command(description="Start a giveaway")
 @commands.guild_only()
 async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: str) -> None:
     seconds = convert_time_to_seconds(duration)
