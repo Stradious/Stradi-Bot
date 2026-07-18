@@ -33,6 +33,11 @@ WELCOME_CHANNEL_ID = env_int("WELCOME_CHANNEL_ID", 1393132051472842802)
 COUNTING_CHANNEL_ID = env_int("COUNTING_CHANNEL_ID", 1393114619777646683)
 GIVEAWAY_CHANNEL_ID = env_int("GIVEAWAY_CHANNEL_ID", 1481864311373565983)
 GIVEAWAY_START_CHANNEL_ID = env_int("GIVEAWAY_START_CHANNEL_ID", 1316295531160539179)
+GIVEAWAY_START_CHANNEL_NAMES = {
+    name.strip().casefold()
+    for name in os.getenv("GIVEAWAY_START_CHANNEL_NAMES", "staff-cmds,admin-cmds").split(",")
+    if name.strip()
+}
 GIVEAWAY_ROLE_ID = env_int("GIVEAWAY_ROLE_ID", 1393364864331808960)
 MEMBER_ROLE = os.getenv("MEMBER_ROLE", "Clowns")
 SECRET_ROLE = os.getenv("SECRET_ROLE", "Gamer")
@@ -236,7 +241,12 @@ async def coinflip(ctx: commands.Context) -> None:
 @bot.command()
 @commands.guild_only()
 async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: str) -> None:
-    if GIVEAWAY_START_CHANNEL_ID and ctx.channel.id != GIVEAWAY_START_CHANNEL_ID:
+    channel_name = getattr(ctx.channel, "name", "").casefold()
+    channel_is_allowed = (
+        ctx.channel.id == GIVEAWAY_START_CHANNEL_ID
+        or channel_name in GIVEAWAY_START_CHANNEL_NAMES
+    )
+    if not channel_is_allowed:
         await ctx.send("Giveaways can’t be started in this channel.", delete_after=5)
         return
     seconds = convert_time_to_seconds(duration)
