@@ -42,6 +42,7 @@ COMMAND_GUILD_IDS = env_int_list(
     "COMMAND_GUILD_IDS", "982318902530949180,1392780437734293615"
 )
 WELCOME_CHANNEL_ID = env_int("WELCOME_CHANNEL_ID", 1393132051472842802)
+BOOST_CHANNEL_ID = env_int("BOOST_CHANNEL_ID", WELCOME_CHANNEL_ID)
 COUNTING_CHANNEL_ID = env_int("COUNTING_CHANNEL_ID", 1393114619777646683)
 GIVEAWAY_CHANNEL_ID = env_int("GIVEAWAY_CHANNEL_ID", 1481864311373565983)
 GIVEAWAY_ROLE_ID = env_int("GIVEAWAY_ROLE_ID", 1528066539721330698)
@@ -147,6 +148,38 @@ async def on_member_join(member: discord.Member) -> None:
 
 
 @bot.event
+async def on_member_update(before: discord.Member, after: discord.Member) -> None:
+    if before.premium_since is not None or after.premium_since is None:
+        return
+
+    channel = after.guild.get_channel(BOOST_CHANNEL_ID) or after.guild.system_channel
+    if channel is None:
+        logger.warning("No boost thank-you channel is available in %s", after.guild.name)
+        return
+
+    embed = discord.Embed(
+        title="🚀 Thank you for boosting!",
+        description=(
+            f"{after.mention} just boosted **{after.guild.name}**!\n\n"
+            "Your support helps the whole server unlock better perks. 💜"
+        ),
+        color=discord.Color.fuchsia(),
+    )
+    embed.set_thumbnail(url=after.display_avatar.url)
+    embed.set_footer(text="You’re an absolute legend.")
+    try:
+        await channel.send(
+            content=after.mention,
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(users=[after]),
+        )
+    except discord.Forbidden:
+        logger.warning("Missing permission to thank boosters in channel %s", channel.id)
+    except discord.HTTPException:
+        logger.exception("Could not send boost thank-you in %s", after.guild.name)
+
+
+@bot.event
 async def on_message(message: discord.Message) -> None:
     if message.author.bot:
         return
@@ -204,6 +237,7 @@ async def help_command(ctx: commands.Context) -> None:
     embed.add_field(name=f"{PREFIX}hello", value="Say hello", inline=True)
     embed.add_field(name=f"{PREFIX}coinflip", value="Flip a coin", inline=True)
     embed.add_field(name=f"{PREFIX}count", value="Show counting progress", inline=True)
+    embed.add_field(name=f"{PREFIX}boosters", value="Show current server boosters", inline=True)
     embed.add_field(name=f"{PREFIX}poll <question>", value="Create a 👍 / 👎 poll", inline=False)
     embed.add_field(name=f"{PREFIX}assign / {PREFIX}remove", value=f"Manage the {SECRET_ROLE} role", inline=False)
     embed.add_field(name=f"{PREFIX}secret", value=f"Use the secret command with the {SECRET_ROLE} role", inline=False)
@@ -256,6 +290,30 @@ async def poll(ctx: commands.Context, *, question: str) -> None:
 async def count(ctx: commands.Context) -> None:
     state = counting_state.get(str(ctx.guild.id), {"current": 0, "best": 0})
     await ctx.send(f"Current count: **{state['current']}** · Server best: **{state['best']}**")
+
+
+@bot.hybrid_command(description="Show everyone currently boosting this server")
+@commands.guild_only()
+async def boosters(ctx: commands.Context) -> None:
+    members = sorted(
+        (member for member in ctx.guild.members if member.premium_since is not None),
+        key=lambda member: member.premium_since,
+    )
+    if not members:
+        await ctx.send("This server doesn’t have any active boosters yet.")
+        return
+
+    booster_list = "\n".join(
+        f"💜 {member.mention} — since {discord.utils.format_dt(member.premium_since, 'D')}"
+        for member in members
+    )
+    embed = discord.Embed(
+        title=f"🚀 {ctx.guild.name} Boosters",
+        description=booster_list[:4096],
+        color=discord.Color.fuchsia(),
+    )
+    embed.set_footer(text=f"{len(members)} active booster(s) — thank you!")
+    await ctx.send(embed=embed)
 
 
 @bot.hybrid_command(description=f"Use the secret command with the {SECRET_ROLE} role")

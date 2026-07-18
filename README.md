@@ -55,6 +55,7 @@ command. Type `/` in Discord to open the native searchable command picker.
 - `!help`
 - `!assign` and `!remove`
 - `!count`
+- `!boosters`
 - `!poll <question>`
 - `!secret`
 - `!coinflip`
@@ -69,5 +70,9 @@ within each server where it has permission to change its nickname.
 
 Slash-command giveaways accept an optional PNG, JPG, GIF, or WEBP upload and
 display it inside the giveaway embed.
+
+When a member starts boosting, the bot posts a thank-you embed in
+`BOOST_CHANNEL_ID` (or the server system channel as a fallback). `/boosters`
+lists all active server boosters.
 
 Counting state is saved to `data/counting.json`, so local restarts no longer erase progress. On Railway, attach persistent storage at `/app/data` if progress must also survive a fresh deployment.
