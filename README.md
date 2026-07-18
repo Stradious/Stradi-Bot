@@ -59,11 +59,15 @@ command. Type `/` in Discord to open the native searchable command picker.
 - `!secret`
 - `!coinflip`
 - `!gstart <time> <winners> <prize>`
+- `/gstart duration:<time> winners:<count> prize:<prize> image:<optional upload>`
 
 Giveaways can be started from any server channel and are posted in the
 configured `GIVEAWAY_CHANNEL_ID`. The notification role is resolved first by
 `GIVEAWAY_ROLE_ID`, then by `GIVEAWAY_ROLE_NAME`, so a stale role ID does not
 produce an unknown-role mention. `BOT_NICKNAME` controls the bot's display name
 within each server where it has permission to change its nickname.
+
+Slash-command giveaways accept an optional PNG, JPG, GIF, or WEBP upload and
+display it inside the giveaway embed.
 
 Counting state is saved to `data/counting.json`, so local restarts no longer erase progress. On Railway, attach persistent storage at `/app/data` if progress must also survive a fresh deployment.

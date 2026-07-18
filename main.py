@@ -11,6 +11,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
@@ -270,9 +271,22 @@ async def coinflip(ctx: commands.Context) -> None:
     await ctx.send(embed=embed)
 
 
-@bot.hybrid_command(description="Start a giveaway")
+@bot.hybrid_command(description="Start a giveaway with an optional image")
+@app_commands.describe(
+    duration="How long the giveaway lasts, such as 30s, 10m, 2h, or 7d",
+    winners="Number of winners from 1 to 20",
+    prize="What the winner receives",
+    image="Optional image shown in the giveaway embed",
+)
 @commands.guild_only()
-async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: str) -> None:
+async def gstart(
+    ctx: commands.Context,
+    duration: str,
+    winners: int,
+    *,
+    prize: str,
+    image: discord.Attachment | None = None,
+) -> None:
     seconds = convert_time_to_seconds(duration)
     if not seconds or seconds > 30 * 86400:
         await ctx.send("Use `30s`, `10m`, `2h`, or `7d` (maximum 30 days).")
@@ -312,6 +326,20 @@ async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: s
         )
         return
 
+    giveaway_file = None
+    if image is not None:
+        content_type = image.content_type or ""
+        image_suffixes = (".png", ".jpg", ".jpeg", ".gif", ".webp")
+        if not content_type.startswith("image/") and not image.filename.lower().endswith(image_suffixes):
+            await ctx.send("The giveaway attachment must be a PNG, JPG, GIF, or WEBP image.")
+            return
+        try:
+            giveaway_file = await image.to_file()
+        except discord.HTTPException:
+            logger.exception("Could not download giveaway image")
+            await ctx.send("I couldn’t process that image. Try uploading it again.")
+            return
+
     end_time = discord.utils.utcnow() + timedelta(seconds=seconds)
     embed = discord.Embed(
         title="🎉 Giveaway",
@@ -322,11 +350,20 @@ async def gstart(ctx: commands.Context, duration: str, winners: int, *, prize: s
         ),
         color=discord.Color.blurple(),
     )
-    giveaway = await channel.send(
-        content=giveaway_role.mention,
-        embed=embed,
-        allowed_mentions=discord.AllowedMentions(roles=[giveaway_role]),
-    )
+    if giveaway_file is not None:
+        embed.set_image(url=f"attachment://{giveaway_file.filename}")
+        giveaway = await channel.send(
+            content=giveaway_role.mention,
+            embed=embed,
+            file=giveaway_file,
+            allowed_mentions=discord.AllowedMentions(roles=[giveaway_role]),
+        )
+    else:
+        giveaway = await channel.send(
+            content=giveaway_role.mention,
+            embed=embed,
+            allowed_mentions=discord.AllowedMentions(roles=[giveaway_role]),
+        )
     await giveaway.add_reaction("🎉")
     await ctx.send(f"Giveaway started in {channel.mention}.")
 
