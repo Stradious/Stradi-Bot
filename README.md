@@ -72,9 +72,10 @@ Slash-command giveaways accept an optional PNG, JPG, GIF, or WEBP upload and
 display it inside the giveaway embed.
 
 When a member starts boosting, the bot posts a thank-you embed in
-`BOOST_CHANNEL_ID`. If that is not configured, it looks for a text channel
-matching `BOOST_CHANNEL_NAMES` (`#boosts`, `#server-boosts`, or `#boost` by
-default). It does not fall back to the welcome or system channel. `/boosters`
-lists all active server boosters.
+`BOOST_CHANNEL_ID`, which defaults to `1527395512054054962` for Stradi's Shack.
+If that channel is not found, it looks for a text channel matching
+`BOOST_CHANNEL_NAMES` (`#boosts`, `#server-boosts`, or `#boost` by default). It
+does not fall back to the welcome or system channel. `/boosters` lists all
+active server boosters.
 
 Counting state is saved to `data/counting.json`, so local restarts no longer erase progress. On Railway, attach persistent storage at `/app/data` if progress must also survive a fresh deployment.

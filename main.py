@@ -46,7 +46,8 @@ COMMAND_GUILD_IDS = env_int_list(
     "COMMAND_GUILD_IDS", "982318902530949180,1392780437734293615"
 )
 WELCOME_CHANNEL_ID = env_int("WELCOME_CHANNEL_ID", 1393132051472842802)
-BOOST_CHANNEL_ID = env_int("BOOST_CHANNEL_ID")
+DEFAULT_BOOST_CHANNEL_ID = 1527395512054054962
+BOOST_CHANNEL_ID = env_int("BOOST_CHANNEL_ID", DEFAULT_BOOST_CHANNEL_ID)
 BOOST_CHANNEL_NAMES = env_str_list("BOOST_CHANNEL_NAMES", "boosts,server-boosts,boost")
 COUNTING_CHANNEL_ID = env_int("COUNTING_CHANNEL_ID", 1393114619777646683)
 GIVEAWAY_CHANNEL_ID = env_int("GIVEAWAY_CHANNEL_ID", 1481864311373565983)
@@ -134,16 +135,18 @@ def find_text_channel_by_name(guild: discord.Guild, names: tuple[str, ...]) -> d
 
 def get_boost_channel(guild: discord.Guild) -> discord.TextChannel | None:
     if BOOST_CHANNEL_ID:
+        channel_id = BOOST_CHANNEL_ID
         if BOOST_CHANNEL_ID == WELCOME_CHANNEL_ID:
             logger.warning(
-                "BOOST_CHANNEL_ID matches WELCOME_CHANNEL_ID in %s; looking up boost channel by name",
+                "BOOST_CHANNEL_ID matches WELCOME_CHANNEL_ID in %s; using the default boost channel",
                 guild.name,
             )
-        else:
-            channel = guild.get_channel(BOOST_CHANNEL_ID)
-            if isinstance(channel, discord.TextChannel):
-                return channel
-            logger.warning("Configured BOOST_CHANNEL_ID %s was not found in %s", BOOST_CHANNEL_ID, guild.name)
+            channel_id = DEFAULT_BOOST_CHANNEL_ID
+
+        channel = guild.get_channel(channel_id)
+        if isinstance(channel, discord.TextChannel):
+            return channel
+        logger.warning("Configured BOOST_CHANNEL_ID %s was not found in %s", channel_id, guild.name)
 
     channel = find_text_channel_by_name(guild, BOOST_CHANNEL_NAMES)
     if channel:
