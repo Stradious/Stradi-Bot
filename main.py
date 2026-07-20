@@ -36,13 +36,18 @@ def env_int_list(name: str, default: str = "") -> tuple[int, ...]:
         raise ValueError(f"{name} must be a comma-separated list of Discord IDs") from exc
 
 
+def env_str_list(name: str, default: str = "") -> tuple[str, ...]:
+    return tuple(value.strip() for value in os.getenv(name, default).split(",") if value.strip())
+
+
 TOKEN = os.getenv("DISCORD_TOKEN")
 PREFIX = os.getenv("COMMAND_PREFIX", "!")
 COMMAND_GUILD_IDS = env_int_list(
     "COMMAND_GUILD_IDS", "982318902530949180,1392780437734293615"
 )
 WELCOME_CHANNEL_ID = env_int("WELCOME_CHANNEL_ID", 1393132051472842802)
-BOOST_CHANNEL_ID = env_int("BOOST_CHANNEL_ID", WELCOME_CHANNEL_ID)
+BOOST_CHANNEL_ID = env_int("BOOST_CHANNEL_ID")
+BOOST_CHANNEL_NAMES = env_str_list("BOOST_CHANNEL_NAMES", "boosts,server-boosts,boost")
 COUNTING_CHANNEL_ID = env_int("COUNTING_CHANNEL_ID", 1393114619777646683)
 GIVEAWAY_CHANNEL_ID = env_int("GIVEAWAY_CHANNEL_ID", 1481864311373565983)
 GIVEAWAY_ROLE_ID = env_int("GIVEAWAY_ROLE_ID", 1528066539721330698)
@@ -115,6 +120,42 @@ def get_ordinal(number: int) -> str:
     return f"{number}{suffix}"
 
 
+def normalize_channel_name(name: str) -> str:
+    return name.strip().casefold().lstrip("#").replace(" ", "-")
+
+
+def find_text_channel_by_name(guild: discord.Guild, names: tuple[str, ...]) -> discord.TextChannel | None:
+    expected_names = {normalize_channel_name(name) for name in names}
+    return discord.utils.find(
+        lambda channel: normalize_channel_name(channel.name) in expected_names,
+        guild.text_channels,
+    )
+
+
+def get_boost_channel(guild: discord.Guild) -> discord.TextChannel | None:
+    if BOOST_CHANNEL_ID:
+        if BOOST_CHANNEL_ID == WELCOME_CHANNEL_ID:
+            logger.warning(
+                "BOOST_CHANNEL_ID matches WELCOME_CHANNEL_ID in %s; looking up boost channel by name",
+                guild.name,
+            )
+        else:
+            channel = guild.get_channel(BOOST_CHANNEL_ID)
+            if isinstance(channel, discord.TextChannel):
+                return channel
+            logger.warning("Configured BOOST_CHANNEL_ID %s was not found in %s", BOOST_CHANNEL_ID, guild.name)
+
+    channel = find_text_channel_by_name(guild, BOOST_CHANNEL_NAMES)
+    if channel:
+        return channel
+
+    logger.warning(
+        "No boost thank-you channel found in %s. Configure BOOST_CHANNEL_ID or create #boosts.",
+        guild.name,
+    )
+    return None
+
+
 @bot.event
 async def on_ready() -> None:
     if BOT_NICKNAME:
@@ -152,9 +193,8 @@ async def on_member_update(before: discord.Member, after: discord.Member) -> Non
     if before.premium_since is not None or after.premium_since is None:
         return
 
-    channel = after.guild.get_channel(BOOST_CHANNEL_ID) or after.guild.system_channel
+    channel = get_boost_channel(after.guild)
     if channel is None:
-        logger.warning("No boost thank-you channel is available in %s", after.guild.name)
         return
 
     embed = discord.Embed(
