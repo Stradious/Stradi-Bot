@@ -56,6 +56,7 @@ command. Type `/` in Discord to open the native searchable command picker.
 - `!assign` and `!remove`
 - `!count`
 - `!boosters`
+- `!testboost`
 - `!poll <question>`
 - `!secret`
 - `!coinflip`

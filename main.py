@@ -191,6 +191,29 @@ async def on_member_join(member: discord.Member) -> None:
         )
 
 
+async def send_test_boost_thank_you(member: discord.Member) -> discord.TextChannel | None:
+    channel = get_boost_channel(member.guild)
+    if channel is None:
+        return None
+
+    embed = discord.Embed(
+        title="\U0001f680 Thank you for boosting!",
+        description=(
+            f"{member.mention} just boosted **{member.guild.name}**!\n\n"
+            "Your support helps the whole server unlock better perks. \U0001f49c"
+        ),
+        color=discord.Color.fuchsia(),
+    )
+    embed.set_thumbnail(url=member.display_avatar.url)
+    embed.set_footer(text="Test boost preview.")
+    await channel.send(
+        content=member.mention,
+        embed=embed,
+        allowed_mentions=discord.AllowedMentions(users=[member]),
+    )
+    return channel
+
+
 @bot.event
 async def on_member_update(before: discord.Member, after: discord.Member) -> None:
     if before.premium_since is not None or after.premium_since is None:
@@ -263,7 +286,7 @@ async def on_command_error(ctx: commands.Context, error: commands.CommandError) 
         await ctx.send(f"Missing `{error.param.name}`. Try `{PREFIX}help` for usage.")
     elif isinstance(error, commands.BadArgument):
         await ctx.send(f"I couldn’t understand that value. Try `{PREFIX}help`.")
-    elif isinstance(error, (commands.MissingRole, commands.NoPrivateMessage)):
+    elif isinstance(error, (commands.MissingPermissions, commands.MissingRole, commands.NoPrivateMessage)):
         await ctx.send("You don’t have permission to use that command here.")
     else:
         logger.error("Command failed: %s", error, exc_info=error)
@@ -281,6 +304,7 @@ async def help_command(ctx: commands.Context) -> None:
     embed.add_field(name=f"{PREFIX}coinflip", value="Flip a coin", inline=True)
     embed.add_field(name=f"{PREFIX}count", value="Show counting progress", inline=True)
     embed.add_field(name=f"{PREFIX}boosters", value="Show current server boosters", inline=True)
+    embed.add_field(name=f"{PREFIX}testboost", value="Preview the boost thank-you", inline=True)
     embed.add_field(name=f"{PREFIX}poll <question>", value="Create a 👍 / 👎 poll", inline=False)
     embed.add_field(name=f"{PREFIX}assign / {PREFIX}remove", value=f"Manage the {SECRET_ROLE} role", inline=False)
     embed.add_field(name=f"{PREFIX}secret", value=f"Use the secret command with the {SECRET_ROLE} role", inline=False)
@@ -357,6 +381,32 @@ async def boosters(ctx: commands.Context) -> None:
     )
     embed.set_footer(text=f"{len(members)} active booster(s) — thank you!")
     await ctx.send(embed=embed)
+
+
+@bot.hybrid_command(description="Send a test boost thank-you embed")
+@commands.guild_only()
+@commands.has_guild_permissions(manage_guild=True)
+async def testboost(ctx: commands.Context) -> None:
+    if not isinstance(ctx.author, discord.Member):
+        await ctx.send("Run this in a server.")
+        return
+
+    try:
+        channel = await send_test_boost_thank_you(ctx.author)
+    except discord.Forbidden:
+        await ctx.send("I don't have permission to post in the boost channel.")
+        return
+    except discord.HTTPException:
+        guild_name = ctx.guild.name if ctx.guild else "unknown guild"
+        logger.exception("Could not send test boost thank-you in %s", guild_name)
+        await ctx.send("Something went wrong while sending the test boost thank-you.")
+        return
+
+    if channel is None:
+        await ctx.send("I couldn't find the boost channel. Check `BOOST_CHANNEL_ID`.")
+        return
+
+    await ctx.send(f"Sent a test boost thank-you in {channel.mention}.")
 
 
 @bot.hybrid_command(description=f"Use the secret command with the {SECRET_ROLE} role")
