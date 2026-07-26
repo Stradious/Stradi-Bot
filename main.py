@@ -7,7 +7,7 @@ import logging
 import os
 import random
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import discord
@@ -57,6 +57,7 @@ BOT_NICKNAME = os.getenv("BOT_NICKNAME", "Strad's Servant").strip()
 MEMBER_ROLE = os.getenv("MEMBER_ROLE", "Clowns")
 SECRET_ROLE = os.getenv("SECRET_ROLE", "Gamer")
 STATE_FILE = Path(os.getenv("STATE_FILE", "data/counting.json"))
+GIVEAWAY_STATE_FILE = Path(os.getenv("GIVEAWAY_STATE_FILE", "data/giveaways.json"))
 
 logging.basicConfig(
     level=os.getenv("LOG_LEVEL", "INFO").upper(),
@@ -98,6 +99,22 @@ def load_state() -> dict:
 counting_state = load_state()
 
 
+def load_giveaways() -> dict[str, dict]:
+    try:
+        data = json.loads(GIVEAWAY_STATE_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except FileNotFoundError:
+        return {}
+    except (OSError, json.JSONDecodeError):
+        logger.exception("Could not load giveaway state")
+        return {}
+
+
+giveaway_state = load_giveaways()
+giveaway_tasks: dict[str, asyncio.Task] = {}
+giveaways_restored = False
+
+
 def save_state() -> None:
     try:
         STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -106,6 +123,16 @@ def save_state() -> None:
         temporary.replace(STATE_FILE)
     except OSError:
         logger.exception("Could not save counting state")
+
+
+def save_giveaways() -> None:
+    try:
+        GIVEAWAY_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        temporary = GIVEAWAY_STATE_FILE.with_suffix(".tmp")
+        temporary.write_text(json.dumps(giveaway_state, indent=2), encoding="utf-8")
+        temporary.replace(GIVEAWAY_STATE_FILE)
+    except OSError:
+        logger.exception("Could not save giveaway state")
 
 
 def convert_time_to_seconds(value: str) -> int | None:
@@ -161,6 +188,12 @@ def get_boost_channel(guild: discord.Guild) -> discord.TextChannel | None:
 
 @bot.event
 async def on_ready() -> None:
+    global giveaways_restored
+    if not giveaways_restored:
+        giveaways_restored = True
+        for giveaway_id in tuple(giveaway_state):
+            schedule_giveaway(giveaway_id)
+        logger.info("Restored %s unfinished giveaway(s)", len(giveaway_state))
     if BOT_NICKNAME:
         for guild in bot.guilds:
             member = guild.me
@@ -422,6 +455,62 @@ async def coinflip(ctx: commands.Context) -> None:
     await ctx.send(embed=embed)
 
 
+def schedule_giveaway(giveaway_id: str) -> None:
+    existing = giveaway_tasks.get(giveaway_id)
+    if existing is None or existing.done():
+        giveaway_tasks[giveaway_id] = asyncio.create_task(finish_giveaway(giveaway_id))
+
+
+async def finish_giveaway(giveaway_id: str) -> None:
+    details = giveaway_state.get(giveaway_id)
+    if details is None:
+        return
+
+    delay = max(0, details["end_timestamp"] - discord.utils.utcnow().timestamp())
+    await asyncio.sleep(delay)
+    try:
+        channel = bot.get_channel(details["channel_id"])
+        if channel is None:
+            channel = await bot.fetch_channel(details["channel_id"])
+        giveaway = await channel.fetch_message(int(giveaway_id))
+        ended_embed = giveaway.embeds[0].copy() if giveaway.embeds else discord.Embed(
+            title="🎉 Giveaway", color=discord.Color.blurple()
+        )
+        end_time = datetime.fromtimestamp(details["end_timestamp"], tz=timezone.utc)
+        ended_embed.description = (
+            f"**{details['prize']}**\n\nThis giveaway has ended.\n"
+            f"Ended {discord.utils.format_dt(end_time, 'R')} · **{details['winners']}** winner(s)\n"
+            f"Hosted by <@{details['host_id']}>"
+        )
+        try:
+            await giveaway.edit(embed=ended_embed)
+        except discord.HTTPException:
+            logger.exception("Could not mark giveaway %s as ended", giveaway_id)
+
+        reaction = discord.utils.get(giveaway.reactions, emoji="🎉")
+        entrants = [user async for user in reaction.users() if not user.bot] if reaction else []
+        if entrants:
+            selected = random.sample(entrants, min(details["winners"], len(entrants)))
+            mentions = ", ".join(user.mention for user in selected)
+            await channel.send(
+                f"🎉 Congratulations {mentions}! You won **{details['prize']}**!",
+                allowed_mentions=discord.AllowedMentions(users=selected),
+            )
+        else:
+            await channel.send(f"The giveaway for **{details['prize']}** ended with no entries.")
+    except (discord.HTTPException, discord.Forbidden, discord.NotFound):
+        logger.exception("Could not finish giveaway %s; it will be retried after restart", giveaway_id)
+        return
+    except Exception:
+        logger.exception("Unexpected error while finishing giveaway %s", giveaway_id)
+        return
+    else:
+        giveaway_state.pop(giveaway_id, None)
+        save_giveaways()
+    finally:
+        giveaway_tasks.pop(giveaway_id, None)
+
+
 @bot.hybrid_command(description="Start a giveaway with an optional image")
 @app_commands.describe(
     duration="How long the giveaway lasts, such as 30s, 10m, 2h, or 7d",
@@ -518,27 +607,16 @@ async def gstart(
     await giveaway.add_reaction("🎉")
     await ctx.send(f"Giveaway started in {channel.mention}.")
 
-    await asyncio.sleep(seconds)
-    giveaway = await channel.fetch_message(giveaway.id)
-    ended_embed = giveaway.embeds[0].copy() if giveaway.embeds else embed.copy()
-    ended_embed.description = (
-        f"**{prize}**\n\nThis giveaway has ended.\n"
-        f"Ended {discord.utils.format_dt(end_time, 'R')} · **{winners}** winner(s)\n"
-        f"Hosted by {ctx.author.mention}"
-    )
-    try:
-        await giveaway.edit(embed=ended_embed)
-    except discord.HTTPException:
-        logger.exception("Could not mark giveaway %s as ended", giveaway.id)
-
-    reaction = discord.utils.get(giveaway.reactions, emoji="🎉")
-    entrants = [user async for user in reaction.users() if not user.bot] if reaction else []
-    if not entrants:
-        await channel.send(f"The giveaway for **{prize}** ended with no entries.")
-        return
-    selected = random.sample(entrants, min(winners, len(entrants)))
-    mentions = ", ".join(user.mention for user in selected)
-    await channel.send(f"🎉 Congratulations {mentions}! You won **{prize}**!")
+    giveaway_id = str(giveaway.id)
+    giveaway_state[giveaway_id] = {
+        "channel_id": channel.id,
+        "end_timestamp": end_time.timestamp(),
+        "host_id": ctx.author.id,
+        "prize": prize,
+        "winners": winners,
+    }
+    save_giveaways()
+    schedule_giveaway(giveaway_id)
 
 
 def main() -> None:
