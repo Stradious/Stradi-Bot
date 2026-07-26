@@ -72,6 +72,11 @@ within each server where it has permission to change its nickname.
 Slash-command giveaways accept an optional PNG, JPG, GIF, or WEBP upload and
 display it inside the giveaway embed.
 
+Unfinished giveaways are saved to `data/giveaways.json` and restored when the
+bot restarts, so a deploy or crash does not silently skip winner selection. On
+Railway, mount persistent storage at `/app/data` to preserve them across fresh
+deployments.
+
 When a member starts boosting, the bot posts a thank-you embed in
 `BOOST_CHANNEL_ID`, which defaults to `1527395512054054962` for Stradi's Shack.
 If that channel is not found, it looks for a text channel matching
